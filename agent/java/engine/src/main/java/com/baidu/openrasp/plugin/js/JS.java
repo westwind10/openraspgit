@@ -16,6 +16,8 @@
 
 package com.baidu.openrasp.plugin.js;
 
+import cn.hutool.cache.CacheUtil;
+import cn.hutool.cache.impl.TimedCache;
 import com.baidu.openrasp.HookHandler;
 import com.baidu.openrasp.cloud.utils.CloudUtils;
 import com.baidu.openrasp.config.Config;
@@ -27,6 +29,7 @@ import com.baidu.openrasp.plugin.checker.CheckParameter.Type;
 import com.baidu.openrasp.plugin.info.AttackInfo;
 import com.baidu.openrasp.plugin.info.EventInfo;
 import com.baidu.openrasp.request.AbstractRequest;
+import com.baidu.openrasp.tool.Reflection;
 import com.baidu.openrasp.tool.StackTrace;
 import com.baidu.openrasp.tool.filemonitor.FileScanListener;
 import com.baidu.openrasp.tool.filemonitor.FileScanMonitor;
@@ -60,6 +63,14 @@ public class JS {
     static {
         Base64Support.enable();
     }
+
+    // 23-10-27  wf_xuke  start
+    // hutool定时缓存  用于存储 sessionid 和 攻击次数
+    private static TimedCache<String, Integer> timedCache = CacheUtil.newTimedCache(1000 * 60 * 60 * 2 );
+
+    // 定义攻击次数
+    private static int count = 3;
+    // 23-10-27  wf_xuke  end
 
     public synchronized static boolean Initialize() {
         try {
@@ -181,6 +192,41 @@ public class JS {
                 if (action.equals("exception")) {
                     pluginLog(message);
                 } else {
+
+                    // 23-10-27  wf_xuke  start
+                    // 进入else 说明检测到攻击
+                    // 获取sessionid
+                    AbstractRequest abstractRequest = checkParameter.getRequest();
+                    Object request = abstractRequest.getRequest();
+                    Object session = Reflection.invokeMethod(request, "getSession", new Class[]{});
+                    String sessionId = Reflection.invokeStringMethod(session, "getId", new Class[]{});
+                    System.out.println("sessionId为: "+ sessionId);
+                    if (count == 0) {
+                        action = "block";
+                    } else {
+                        // 获取攻击次数
+                        Integer scount = timedCache.get(sessionId);
+                        if (scount == null) {
+                            // 说明是首次攻击
+                            timedCache.put(sessionId, 1);
+                            action = "log";
+                        } else {
+                            // 判断攻击次数
+                            int newcount = scount + 1 ;
+                            if (scount < count) {
+                                // 攻击次数小于设定次数  不拦截
+                                timedCache.put(sessionId, newcount);
+                                action = "log";
+                            } else {
+                                // 攻击次数大于设定次数  拦截
+                                timedCache.put(sessionId, newcount);
+                                action = "block";
+                            }
+                        }
+                        System.out.println("攻击次数:  " + scount);
+                    }
+                    // 23-10-27  wf_xuke  end
+
                     attackInfos
                             .add(new AttackInfo(checkParameter, action, message, name, confidence, algorithm, params, obj));
                 }

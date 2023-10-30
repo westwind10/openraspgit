@@ -15,7 +15,8 @@
  */
 
 package com.baidu.openrasp.plugin.js;
-
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import com.baidu.openrasp.cloud.model.CloudCacheModel;
 import com.baidu.openrasp.config.Config;
 import com.baidu.openrasp.request.AbstractRequest;
@@ -226,7 +227,70 @@ public class Context extends com.baidu.openrasp.v8.Context {
                 return null;
             }
             ByteArrayOutputStream out = new ByteArrayOutputStream();
-            JsonStream.serialize(parameters, out);
+
+
+            // 2023-10-18  wf_xuke start
+            // 在此遍历 parameters集合 并进行解码, 之后 new 一个新的Map, 将解码完成的数据 put 到新的 map 中
+            Map<String, String[]> decode = new HashMap<String, String[]>();
+            for (Map.Entry <String, String[]> oneParam : parameters.entrySet()) {
+                String key = oneParam.getKey();
+                String[] values = oneParam.getValue();
+                // 解码
+                String newKey;
+                String[] newValues = new String[values.length];
+                if (key.endsWith("eEc")) {
+                    newKey = PicList.decode(key,"8NONwyJtHesysWpM");
+                    for (int i = 0; i < newValues.length; i++) {
+                        if (values[i].endsWith("eEc")) {
+                            newValues[i] = PicList.decode(values[i],"8NONwyJtHesysWpM");
+                        } else {
+                            newValues[i] = values[i];
+                        }
+                    }
+                } else {
+                    newKey = key;
+                    for (int i = 0; i < newValues.length; i++) {
+                        if (values[i].endsWith("eEc")) {
+                            newValues[i] = PicList.decode(values[i],"8NONwyJtHesysWpM");
+                        } else {
+                            newValues[i] = values[i];
+                        }
+                    }
+                }
+
+                // 将解码后的数据存入新集合
+                decode.put(newKey, newValues);
+            }
+
+            // 拆分 userData   userContext   cvstr
+            for (Map.Entry <String, String[]> oneDecode : decode.entrySet()) {
+                if ("userData".equals(oneDecode.getKey())||"userContext".equals(oneDecode.getKey())) {
+                    String value = oneDecode.getValue()[0];
+                    JSONObject jsonObject = JSONUtil.parseObj(value);
+
+                    for (Map.Entry<String, Object> entry : jsonObject.entrySet()) {
+                        String key = entry.getKey();
+                        JSONObject val = (JSONObject)entry.getValue();
+                        String string = val.toString();
+                        String[] strings = {string};
+                        decode.put(key, strings);
+                    }
+
+                } else if ("cvstr".equals(oneDecode.getKey())) {
+                    // "#158-c.userid#::xk$$#158-c.carno#::carinfo where userid"
+                    // 先按照$$分隔 后再按照::分隔
+                    String[] outsides = oneDecode.getValue()[0].split("\\$\\$");
+                    for (String outside : outsides) {
+                        String[] insides = outside.split("::");
+                        String[] strings = {insides[1]};
+                        decode.put(insides[0], strings);
+                    }
+                }
+            }
+            JsonStream.serialize(decode, out);
+            // 2023-10-18  wf_xuke end
+
+            // JsonStream.serialize(parameters, out);
             out.write(0);
             return out.getByteArray();
         } catch (Exception e) {
