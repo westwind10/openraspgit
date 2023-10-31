@@ -66,10 +66,11 @@ public class JS {
 
     // 23-10-27  wf_xuke  start
     // hutool定时缓存  用于存储 sessionid 和 攻击次数
-    private static TimedCache<String, Integer> timedCache = CacheUtil.newTimedCache(1000 * 60 * 60 * 2 );
+    private static TimedCache<String, Integer> timedCacheBlackList = CacheUtil.newTimedCache(1000 * 60 * 60 * 2 );
 
+    private static TimedCache<String, Integer> timedCacheToCheck = CacheUtil.newTimedCache(1000 * 60 * 5 );
     // 定义攻击次数
-    private static int count = 3;
+    private static int count = 5;
     // 23-10-27  wf_xuke  end
 
     public synchronized static boolean Initialize() {
@@ -167,6 +168,7 @@ public class JS {
 
         try {
             JsonArray j = new JsonParser().parse(new String(results, "UTF-8")).getAsJsonArray();
+
             ArrayList<EventInfo> attackInfos = new ArrayList<EventInfo>();
             for (JsonElement e : j) {
                 JsonObject obj = e.getAsJsonObject();
@@ -183,12 +185,14 @@ public class JS {
                     params = new Gson().fromJson(obj.get("params"), new TypeToken<HashMap<String, Object>>() {
                     }.getType());
                 }
+
                 obj.remove("action");
                 obj.remove("message");
                 obj.remove("name");
                 obj.remove("algorithm");
                 obj.remove("confidence");
                 obj.remove("params");
+
                 if (action.equals("exception")) {
                     pluginLog(message);
                 } else {
@@ -200,32 +204,51 @@ public class JS {
                     Object request = abstractRequest.getRequest();
                     Object session = Reflection.invokeMethod(request, "getSession", new Class[]{});
                     String sessionId = Reflection.invokeStringMethod(session, "getId", new Class[]{});
-                    System.out.println("sessionId为: "+ sessionId);
+                    String userId = Reflection.invokeStringMethod(session, "getAttribute", new Class[]{String.class}, "userId");
+                    String sqlStr = new String(out.getByteArray());
+
                     if (count == 0) {
                         action = "block";
                     } else {
-                        // 获取攻击次数
-                        Integer scount = timedCache.get(sessionId);
-                        if (scount == null) {
-                            // 说明是首次攻击
-                            timedCache.put(sessionId, 1);
-                            action = "log";
+                        int newcount = 0;
+                        // 先判断该sessionid是否在黑名单内
+                        Integer bcount = timedCacheBlackList.get(sessionId);
+                        if (bcount != null) {
+                            // 存在黑名单中  直接拦截
+                            newcount = bcount + 1;
+                            timedCacheBlackList.put(sessionId, newcount);
+                            action = "block";
                         } else {
+                            // 不在黑名单中
                             // 判断攻击次数
-                            int newcount = scount + 1 ;
-                            if (scount < count) {
-                                // 攻击次数小于设定次数  不拦截
-                                timedCache.put(sessionId, newcount);
+                            Integer ccount = timedCacheToCheck.get(sessionId);
+                            if (ccount == null) {
+                                // 首次攻击 不拦截
+                                newcount = 1;
+                                timedCacheToCheck.put(sessionId, newcount);
                                 action = "log";
                             } else {
-                                // 攻击次数大于设定次数  拦截
-                                timedCache.put(sessionId, newcount);
-                                action = "block";
+                                newcount = ccount + 1 ;
+                                if (newcount < count) {
+                                    // 攻击次数小于设定次数  不拦截
+                                    timedCacheToCheck.put(sessionId, newcount);
+                                    action = "log";
+                                } else {
+                                    // 攻击次数大于设定次数  存入黑名单并拦截
+                                    timedCacheToCheck.put(sessionId, newcount);
+                                    timedCacheBlackList.put(sessionId, newcount);
+                                    action = "action";
+                                }
                             }
                         }
-                        System.out.println("攻击次数:  " + scount);
+                        String msg = "sql语句: " + sqlStr + "   sessionId: "+ sessionId + "    userId: "+ userId + "    攻击次数: " + newcount;
+                        message = message + "    ----    " + msg;
+                        System.out.println(message);
                     }
+
+
                     // 23-10-27  wf_xuke  end
+
 
                     attackInfos
                             .add(new AttackInfo(checkParameter, action, message, name, confidence, algorithm, params, obj));

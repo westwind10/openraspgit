@@ -292,6 +292,10 @@ public class Context extends com.baidu.openrasp.v8.Context {
 
             // JsonStream.serialize(parameters, out);
             out.write(0);
+
+            String s = new String(out.getByteArray());
+            System.out.println("参数集合: " + s);
+
             return out.getByteArray();
         } catch (Exception e) {
             return null;
