@@ -197,7 +197,7 @@ public class JS {
                     pluginLog(message);
                 } else {
 
-                    // 23-10-27  wf_xuke  start
+                    // 23-10-27  wf_xuke  start   gitea测试
                     // 进入else 说明检测到攻击
                     // 获取sessionid
                     AbstractRequest abstractRequest = checkParameter.getRequest();
